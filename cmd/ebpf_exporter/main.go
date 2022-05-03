@@ -1,16 +1,16 @@
 package main
 
 import (
-	"crypto/sha256"
-	"crypto/subtle"
 	"log"
 	"net/http"
+	"sync"
 
 	"github.com/cloudflare/ebpf_exporter/config"
 	"github.com/cloudflare/ebpf_exporter/exporter"
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/prometheus/client_golang/prometheus/promhttp"
 	"github.com/prometheus/common/version"
+	"golang.org/x/crypto/bcrypt"
 	kingpin "gopkg.in/alecthomas/kingpin.v2"
 	yaml "gopkg.in/yaml.v2"
 )
@@ -88,6 +88,8 @@ func main() {
 }
 
 func basicAuthHandler(users map[string]string, next http.Handler) http.Handler {
+	bcryptL := sync.Mutex{}
+
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		user, password, auth := r.BasicAuth()
 
@@ -97,20 +99,19 @@ func basicAuthHandler(users map[string]string, next http.Handler) http.Handler {
 			return
 		}
 
-		expectedPassword, userValid := users[user]
+		hashedPassword, userValid := users[user]
 
 		// Ensure a constant-time lookup even if the password is invalid.
 		if !userValid {
 			// Ensure constant time compare
-			expectedPassword = "someinvalidpassword"
+			hashedPassword = "someinvalidpassword"
 		}
 
-		expectedHash := sha256.Sum256([]byte(expectedPassword))
-		passwordHash := sha256.Sum256([]byte(password))
+		bcryptL.Lock()
+		err := bcrypt.CompareHashAndPassword([]byte(hashedPassword), []byte(password))
+		bcryptL.Unlock()
 
-		passwordMatch := subtle.ConstantTimeCompare(passwordHash[:], expectedHash[:]) == 1
-
-		if !passwordMatch || !userValid {
+		if err != nil || !userValid {
 			w.Header().Set("WWW-Authenticate", "Basic")
 			http.Error(w, http.StatusText(http.StatusUnauthorized), http.StatusUnauthorized)
 			return

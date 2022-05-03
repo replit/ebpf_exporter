@@ -43,6 +43,10 @@ github.com/prometheus/common/version
 github.com/prometheus/procfs
 github.com/prometheus/procfs/internal/fs
 github.com/prometheus/procfs/internal/util
+# golang.org/x/crypto v0.0.0-20220427172511-eb4f295cb31f
+## explicit
+golang.org/x/crypto/bcrypt
+golang.org/x/crypto/blowfish
 # golang.org/x/sys v0.0.0-20210923061019-b8560ed6a9b7
 ## explicit
 golang.org/x/sys/internal/unsafeheader
