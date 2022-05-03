@@ -8,7 +8,8 @@ import (
 
 // Config defines exporter configuration
 type Config struct {
-	Programs []Program `yaml:"programs"`
+	Programs       []Program         `yaml:"programs"`
+	BasicAuthUsers map[string]string `yaml:"basic_auth_users"`
 }
 
 // Program is an eBPF program with optional metrics attached to it

@@ -1,6 +1,8 @@
 package main
 
 import (
+	"crypto/sha256"
+	"crypto/subtle"
 	"log"
 	"net/http"
 
@@ -51,8 +53,10 @@ func main() {
 		log.Fatalf("Error registering exporter: %s", err)
 	}
 
-	http.Handle(*metricsPath, promhttp.Handler())
-	http.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
+	mux := http.NewServeMux()
+
+	mux.Handle(*metricsPath, promhttp.Handler())
+	mux.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
 		_, err = w.Write([]byte(`<html>
 			<head><title>eBPF Exporter</title></head>
 			<body>
@@ -67,12 +71,51 @@ func main() {
 
 	if *debug {
 		log.Printf("Debug enabled, exporting raw tables on /tables")
-		http.HandleFunc("/tables", e.TablesHandler)
+		mux.HandleFunc("/tables", e.TablesHandler)
+	}
+
+	var handler http.Handler = mux
+
+	if len(config.BasicAuthUsers) > 0 {
+		handler = basicAuthHandler(config.BasicAuthUsers, handler)
 	}
 
 	log.Printf("Listening on %s", *listenAddress)
-	err = http.ListenAndServe(*listenAddress, nil)
+	err = http.ListenAndServe(*listenAddress, handler)
 	if err != nil {
 		log.Fatalf("Error listening on %s: %s", *listenAddress, err)
 	}
+}
+
+func basicAuthHandler(users map[string]string, next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		user, password, auth := r.BasicAuth()
+
+		if !auth {
+			w.Header().Set("WWW-Authenticate", "Basic")
+			http.Error(w, http.StatusText(http.StatusUnauthorized), http.StatusUnauthorized)
+			return
+		}
+
+		expectedPassword, userValid := users[user]
+
+		// Ensure a constant-time lookup even if the password is invalid.
+		if !userValid {
+			// Ensure constant time compare
+			expectedPassword = "someinvalidpassword"
+		}
+
+		expectedHash := sha256.Sum256([]byte(expectedPassword))
+		passwordHash := sha256.Sum256([]byte(password))
+
+		passwordMatch := subtle.ConstantTimeCompare(passwordHash[:], expectedHash[:]) == 1
+
+		if !passwordMatch || !userValid {
+			w.Header().Set("WWW-Authenticate", "Basic")
+			http.Error(w, http.StatusText(http.StatusUnauthorized), http.StatusUnauthorized)
+			return
+		}
+
+		next.ServeHTTP(w, r)
+	})
 }
